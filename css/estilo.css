@@ -1,0 +1,231 @@
+/* Portada ligera: una ficha de herbario sobre fondo húmedo y oscuro. */
+:root {
+  --humus: #0b0f0c;
+  --corteza: #151b16;
+  --liquen: #c9d6b0;
+  --liquen-tenue: #8f9b80;
+  --xanthoria: #e39a3b;
+  --red: #8ff5cf;
+  --linea: #2a3428;
+  --f-display: 'Cormorant Garamond', 'Iowan Old Style', Georgia, serif;
+  --f-body: 'Karla', 'Helvetica Neue', Arial, sans-serif;
+  --f-mono: 'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace;
+  color-scheme: dark;
+}
+html,
+body {
+  height: 100%;
+  margin: 0;
+  background: var(--humus);
+  color: var(--liquen);
+  font-family: var(--f-body);
+  overscroll-behavior: none;
+}
+canvas {
+  display: block;
+}
+#intro {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  overflow-y: auto;
+  box-sizing: border-box;
+  padding-inline: 16px;
+  padding-block: calc(env(safe-area-inset-top, 0px) + 28px) calc(env(safe-area-inset-bottom, 0px) + 28px);
+  background:
+    radial-gradient(ellipse 60% 50% at 80% 15%, rgba(143, 245, 207, 0.07), transparent 70%),
+    radial-gradient(ellipse 50% 40% at 10% 92%, rgba(227, 154, 59, 0.08), transparent 70%),
+    var(--humus);
+}
+#intro[hidden] {
+  display: none;
+}
+.ficha {
+  max-width: 900px;
+  margin: 0 auto;
+  display: grid;
+  gap: 28px;
+}
+.eyebrow {
+  margin: 0;
+  font-family: var(--f-mono);
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--xanthoria);
+}
+h1 {
+  font-family: var(--f-display);
+  font-weight: 500;
+  font-size: clamp(50px, 10vw, 112px);
+  line-height: 0.92;
+  margin: 8px 0 0;
+}
+h1 em {
+  font-style: italic;
+  font-weight: 400;
+  color: var(--red);
+}
+.lede {
+  margin: 0;
+  max-width: 34em;
+  font-family: var(--f-display);
+  font-style: italic;
+  font-size: clamp(20px, 2.5vw, 26px);
+  line-height: 1.35;
+  text-wrap: balance;
+}
+.entrada {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 24px;
+  align-items: center;
+  padding: 22px;
+  border: 1px solid var(--linea);
+  border-radius: 10px;
+  background: var(--corteza);
+}
+.entrada p {
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.5;
+}
+.entrada p + p {
+  margin-top: 8px;
+  font-size: 14px;
+  color: var(--liquen-tenue);
+}
+#acciones {
+  display: grid;
+  gap: 12px;
+}
+.estado {
+  font-family: var(--f-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--liquen-tenue);
+}
+.barra {
+  height: 3px;
+  background: var(--linea);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.barra span {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--red);
+  transition: width 0.3s ease;
+}
+.prep ul {
+  list-style: none;
+  padding: 0;
+  margin: 12px 0 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 28px;
+  font-size: 15px;
+  line-height: 1.45;
+}
+.prep li {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr);
+  gap: 12px;
+}
+.prep li b {
+  font-family: var(--f-mono);
+  font-weight: 500;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--liquen-tenue);
+  padding-top: 2px;
+}
+/* Botón de XR Blocks, reubicado dentro de la ficha */
+#XRButtonWrapper {
+  position: static !important;
+  width: auto !important;
+  height: auto !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: stretch !important;
+  gap: 10px !important;
+  text-align: left !important;
+}
+#XRButtonWrapper h1,
+#XRButtonWrapper h4 {
+  display: none;
+}
+.XRButton,
+.boton {
+  font-family: var(--f-body);
+  font-weight: 600;
+  font-size: 20px;
+  text-transform: none;
+  letter-spacing: 0.01em;
+  padding: 18px 24px;
+  min-height: 62px;
+  border-radius: 999px;
+  border: 1px solid var(--red);
+  background: var(--red);
+  color: var(--humus);
+  cursor: pointer;
+}
+.boton.secundario {
+  background: transparent;
+  color: var(--liquen);
+  border-color: var(--liquen-tenue);
+  font-size: 16px;
+  min-height: 50px;
+  padding: 12px 22px;
+}
+.XRButton:focus-visible,
+.boton:focus-visible {
+  outline: 2px solid var(--xanthoria);
+  outline-offset: 3px;
+}
+.XRButton:disabled,
+.boton:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.XRButtonError {
+  color: var(--xanthoria);
+  font-size: 13px;
+}
+.pie {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--linea);
+  font-family: var(--f-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--liquen-tenue);
+}
+#hudEscritorio {
+  position: fixed;
+  right: 16px;
+  left: 16px;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 14px);
+  z-index: 5;
+  width: fit-content;
+  margin-left: auto;
+  font-family: var(--f-mono);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--liquen-tenue);
+  background: rgba(11, 15, 12, 0.72);
+  border: 1px solid var(--linea);
+  border-radius: 6px;
+  padding: 8px 10px;
+  pointer-events: none;
+}
+@media (max-width: 760px) {
+  .entrada,
+  .prep ul {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

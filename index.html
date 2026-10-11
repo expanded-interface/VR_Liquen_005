@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover" />
+<title>Memoria de un liquen</title>
+<meta name="description" content="Experiencia WebXR para Meta Quest 3: del bosque valdiviano a la simbiosis entre un hongo y un alga, y de la roca desnuda al bosque maduro." />
+<link rel="icon" href="data:," />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;1,400;1,500&family=Karla:wght@400;600&family=IBM+Plex+Mono:wght@400;500&display=swap" />
+<link rel="stylesheet" href="css/estilo.css" />
+<script>window.litDisableBundleWarning = true;</script>
+<!-- Versiones fijadas. three 0.186 + Spark 2.1 es la combinación que usa la muestra oficial
+     samples/xr_realism/3dgs_walkthrough de XR Blocks. -->
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+    "three/": "https://cdn.jsdelivr.net/npm/three@0.186.0/",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/",
+    "three/webgpu": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.webgpu.js",
+    "three/tsl": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.tsl.js",
+    "@sparkjsdev/spark": "https://cdn.jsdelivr.net/npm/@sparkjsdev/spark@2.1.0/dist/spark.module.min.js",
+    "@pmndrs/uikit": "https://cdn.jsdelivr.net/npm/@pmndrs/uikit@1.0.64/dist/index.min.js",
+    "@pmndrs/uikit-pub-sub": "https://cdn.jsdelivr.net/npm/@pmndrs/uikit-pub-sub@1.0.64/dist/index.min.js",
+    "@pmndrs/msdfonts": "https://cdn.jsdelivr.net/npm/@pmndrs/msdfonts@1.0.64/dist/index.min.js",
+    "@preact/signals-core": "https://cdn.jsdelivr.net/npm/@preact/signals-core@1.14.0/dist/signals-core.mjs",
+    "yoga-layout/load": "https://cdn.jsdelivr.net/npm/yoga-layout@3.2.1/dist/src/load.js",
+    "lit": "https://esm.sh/lit@3.3.1",
+    "lit/": "https://esm.sh/lit@3.3.1/",
+    "xrblocks": "https://cdn.jsdelivr.net/npm/xrblocks@0.22.0/build/xrblocks.js",
+    "xrblocks/addons/": "https://cdn.jsdelivr.net/npm/xrblocks@0.22.0/build/addons/"
+  }
+}
+</script>
+</head>
+<body>
+<main id="intro">
+  <div class="ficha">
+    <header>
+      <p class="eyebrow">WebXR · Meta Quest 3 · Selva valdiviana costera · Región de Los Ríos</p>
+      <h1>Memoria de <em>un liquen</em></h1>
+    </header>
+    <p class="lede">
+      Un viaje desde el bosque hasta la escala de las células, y de la roca desnuda de vuelta al bosque. Durante unos
+      minutos vas a ver el mundo como lo ve un liquen.
+    </p>
+
+    <section class="entrada" aria-label="Entrar a la experiencia">
+      <div>
+        <p id="saludo">Ponte el visor, ajusta el volumen y entra. Dura unos 9 minutos.</p>
+        <p>No pide micrófono, cámara ni otros permisos. Puedes usar los controles o las manos, y también puedes no hacer nada: la experiencia sigue sola.</p>
+      </div>
+      <div id="acciones">
+        <div id="xrSlot" hidden></div>
+        <button type="button" class="boton secundario" id="btnNavegador" disabled>Ver en el navegador</button>
+        <span class="estado" id="estado" role="status">Cargando el bosque…</span>
+        <div class="barra" aria-hidden="true"><span id="barraCarga"></span></div>
+      </div>
+    </section>
+
+    <section class="prep" aria-label="Antes de entrar">
+      <p class="eyebrow">Antes de entrar</p>
+      <ul>
+        <li><b>Postura</b><span>De pie o sentado. No tienes que caminar: nada en la experiencia te desplaza.</span></li>
+        <li><b>Soplar</b><span>Cuando aparezca la pregunta, lleva una mano a la boca y ábrela hacia la roca, como quien sopla una semilla. También sirve mantener el gatillo o el pellizco.</span></li>
+        <li><b>Línea de tiempo</b><span>Botón lateral (grip) o pellizco largo: la pausa y muestra los 8 momentos. Mira uno y confirma con el gatillo o un pellizco para saltar.</span></li>
+        <li><b>Navegador</b><span>Clic derecho y arrastrar para mirar · Clic: gesto · T: línea de tiempo · 1–8: saltar · Espacio: pausa.</span></li>
+      </ul>
+    </section>
+
+    <footer class="pie">
+      <span>Pseudocyphellaria · Sticta · Usnea · Olivillo · Arrayán · Copihue</span>
+      <span>XR Blocks · three.js · Spark</span>
+    </footer>
+  </div>
+</main>
+<div id="hudEscritorio" hidden>Clic derecho + arrastrar: mirar · Clic: gesto · Mantener clic: soplar · T: línea de tiempo · 1–8: escenas · Espacio: pausa</div>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
