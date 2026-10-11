@@ -153,8 +153,10 @@ export const ESCENAS = [
    Rendimiento
    ------------------------------------------------------------------ */
 export const CALIDAD = {
-  fpsMinimo: 66, // si la media cae bajo esto en los primeros segundos, se recorta lo decorativo
-  frecuenciaPreferida: 90, // Hz, sólo si el visor lo ofrece
+  fpsMinimo: 66, // si la media cae bajo esto durante 6 s seguidos, se recorta lo decorativo
+  // 72 Hz es la frecuencia nativa del navegador del Quest: más margen por cuadro y menos riesgo de tirones.
+  // ?hz=90 la sube si el visor la ofrece.
+  frecuenciaPreferida: parseInt(PARAMS.get('hz'), 10) || 72,
   particulas: 900,
   particulasBaja: 400,
 };

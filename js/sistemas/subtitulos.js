@@ -1,54 +1,47 @@
 /**
- * Voz narrativa como texto sutil. Dos franjas:
+ * Voz narrativa como texto sutil. Dos franjas independientes:
  *  · voz  — primera persona del liquen, cursiva serif, centrada
  *  · nota — aclaración científica en mono pequeña (separa lo observado de lo artístico)
- * El texto vive bajo la línea del horizonte, se desliza con la mirada sólo cuando
- * ésta se aleja mucho (comodidad), y se desvanece solo.
+ *
+ * Rendimiento: cada franja tiene su propio lienzo y se dibuja UNA vez por frase;
+ * los fundidos se hacen con material.opacity (antes se redibujaba y resubía la textura
+ * ~50 veces por frase, lo que en el Quest bloquea el hilo de render).
+ *
+ * Orientación: el panel no usa lookAt. Su giro se calcula a partir del rumbo de la mirada
+ * (rotación Y) y de la inclinación hacia los ojos (rotación X), de modo que la cara frontal
+ * del plano —y con ella el texto, legible y sin espejarse— siempre apunta al visitante.
  */
 import * as THREE from 'three';
 import {clamp, lerp} from '../nucleo/utilidades.js';
 
-const W = 1600;
-const H = 420;
+const DIST = 1.6; // m frente a los ojos
+const BAJO = 0.42; // m bajo la línea de los ojos
+const ANCHO = 1.5; // m
 
-export class Subtitulos {
-  constructor() {
+class Franja {
+  constructor({w, h, alto, nota}) {
+    this.W = w;
+    this.H = h;
+    this.nota = nota;
     this.canvas = document.createElement('canvas');
-    this.canvas.width = 1280;
-    this.canvas.height = 336;
+    this.canvas.width = w;
+    this.canvas.height = h;
     this.ctx = this.canvas.getContext('2d');
-    this.ctx.setTransform(1280 / W, 0, 0, 336 / H, 0, 0);
     this.tex = new THREE.CanvasTexture(this.canvas);
     this.tex.colorSpace = THREE.SRGBColorSpace;
     this.tex.generateMipmaps = false;
     this.tex.minFilter = THREE.LinearFilter;
+    this.tex.flipY = true; // explícito: el lienzo se dibuja con el origen arriba
     this.mesh = new THREE.Mesh(
-      new THREE.PlaneGeometry(1.5, (1.5 * H) / W),
-      new THREE.MeshBasicMaterial({map: this.tex, transparent: true, depthTest: false, depthWrite: false, fog: false, opacity: 0})
+      new THREE.PlaneGeometry(ANCHO, (ANCHO * h) / w),
+      new THREE.MeshBasicMaterial({map: this.tex, transparent: true, depthTest: false, depthWrite: false, fog: false, opacity: 0, side: THREE.FrontSide})
     );
     this.mesh.renderOrder = 998;
-    this.mesh.name = 'subtitulos';
+    this.mesh.position.y = alto; // desplazamiento dentro del grupo
     this.mesh.raycast = () => {};
-    this.franjas = {
-      voz: {texto: '', alfa: 0, hasta: 0},
-      nota: {texto: '', alfa: 0, hasta: 0},
-    };
-    this.reloj = 0;
-    this.yaw = null;
-    this.atenuado = 1;
-    this._sucio = true;
-  }
-
-  mostrar(texto, {nota = false, duracion} = {}) {
-    const f = this.franjas[nota ? 'nota' : 'voz'];
-    f.texto = texto;
-    f.alfa = 0;
-    f.hasta = this.reloj + (duracion ?? 3.8 + texto.length * 0.055);
-    this._sucio = true;
-  }
-
-  limpiar() {
-    for (const k in this.franjas) this.franjas[k].hasta = 0;
+    this.mesh.visible = false;
+    this.alfa = 0;
+    this.hasta = 0;
   }
 
   _wrap(txt, maxW) {
@@ -66,67 +59,78 @@ export class Subtitulos {
     return out;
   }
 
-  _dibujar() {
+  /** Se dibuja una sola vez, a opacidad completa */
+  escribir(texto) {
     const c = this.ctx;
-    c.clearRect(0, 0, W, H);
+    c.clearRect(0, 0, this.W, this.H);
     c.textAlign = 'center';
-    c.textBaseline = 'alphabetic';
-    const voz = this.franjas.voz;
-    const nota = this.franjas.nota;
-    let y = 96;
-    if (voz.alfa > 0.002) {
-      c.font = 'italic 500 66px "Cormorant Garamond", Georgia, serif';
-      const lineas = this._wrap(voz.texto, W - 140).slice(0, 3);
-      c.shadowColor = 'rgba(0,0,0,0.85)';
-      c.shadowBlur = 24;
-      c.fillStyle = `rgba(232,240,214,${voz.alfa})`;
-      lineas.forEach((l) => {
-        c.fillText(l, W / 2, y);
-        y += 74;
-      });
-    }
-    if (nota.alfa > 0.002) {
-      y = Math.max(y + 10, 250);
-      c.font = '400 30px "IBM Plex Mono", monospace';
-      c.shadowColor = 'rgba(0,0,0,0.9)';
-      c.shadowBlur = 16;
-      c.fillStyle = `rgba(190,205,170,${nota.alfa * 0.85})`;
-      this._wrap(nota.texto, W - 260)
-        .slice(0, 4)
-        .forEach((l) => {
-          c.fillText(l, W / 2, y);
-          y += 40;
-        });
+    c.textBaseline = 'middle';
+    c.shadowColor = 'rgba(0,0,0,0.88)';
+    if (this.nota) {
+      c.font = '400 26px "IBM Plex Mono", monospace';
+      c.shadowBlur = 14;
+      c.fillStyle = 'rgba(190,205,170,0.88)';
+      const lineas = this._wrap(texto, this.W - 120).slice(0, 4);
+      const y0 = this.H / 2 - ((lineas.length - 1) * 36) / 2;
+      lineas.forEach((l, i) => c.fillText(l, this.W / 2, y0 + i * 36));
+    } else {
+      c.font = 'italic 500 56px "Cormorant Garamond", Georgia, serif';
+      c.shadowBlur = 20;
+      c.fillStyle = 'rgb(232,240,214)';
+      const lineas = this._wrap(texto, this.W - 110).slice(0, 3);
+      const y0 = this.H / 2 - ((lineas.length - 1) * 64) / 2;
+      lineas.forEach((l, i) => c.fillText(l, this.W / 2, y0 + i * 64));
     }
     c.shadowBlur = 0;
-    this.tex.needsUpdate = true;
+    this.tex.needsUpdate = true; // única subida por frase
+  }
+
+  actualizar(dt, reloj, atenuado) {
+    const meta = reloj < this.hasta ? 1 : 0;
+    this.alfa = clamp(this.alfa + (meta ? dt / 1.4 : -dt / 1.8));
+    this.mesh.material.opacity = this.alfa * atenuado;
+    this.mesh.visible = this.alfa > 0.002;
+    return this.mesh.visible;
+  }
+}
+
+export class Subtitulos {
+  constructor() {
+    // grupo que se orienta hacia el visitante; las franjas son hijas sin rotación propia
+    this.mesh = new THREE.Group();
+    this.mesh.name = 'subtitulos';
+    this.voz = new Franja({w: 1280, h: 230, alto: 0.06, nota: false});
+    this.nota = new Franja({w: 1280, h: 170, alto: -0.15, nota: true});
+    this.mesh.add(this.voz.mesh, this.nota.mesh);
+    this.reloj = 0;
+    this.yaw = null;
+    this.atenuado = 1;
+  }
+
+  mostrar(texto, {nota = false, duracion} = {}) {
+    const f = nota ? this.nota : this.voz;
+    f.escribir(texto);
+    f.alfa = 0;
+    f.hasta = this.reloj + (duracion ?? 3.8 + texto.length * 0.055);
+  }
+
+  limpiar() {
+    this.voz.hasta = this.nota.hasta = 0;
   }
 
   actualizar(dt, cabeza, yawCabeza) {
     this.reloj += dt;
-    let cambia = this._sucio;
-    for (const k in this.franjas) {
-      const f = this.franjas[k];
-      const meta = this.reloj < f.hasta ? 1 : 0;
-      f.alfa = clamp(f.alfa + (meta ? dt / 1.6 : -dt / 2.2));
-      // Redibujar sólo en saltos visibles: ahorra subir la textura en cada cuadro
-      const dib = f._dib ?? -1;
-      if (Math.abs(f.alfa - dib) > 0.04 || (f.alfa !== dib && (f.alfa === 0 || f.alfa === 1))) cambia = true;
-    }
-    if (cambia) {
-      this._dibujar();
-      for (const k in this.franjas) this.franjas[k]._dib = this.franjas[k].alfa;
-      this._sucio = false;
-    }
-    const visible = this.franjas.voz.alfa > 0.002 || this.franjas.nota.alfa > 0.002;
+    const a = this.voz.actualizar(dt, this.reloj, this.atenuado);
+    const b = this.nota.actualizar(dt, this.reloj, this.atenuado);
+    const visible = a || b;
     this.mesh.visible = visible;
-    this.mesh.material.opacity = this.atenuado;
-    if (!visible && this.yaw !== null) {
-      this.yaw = yawCabeza; // reaparece donde estés mirando
+    if (!visible) {
+      this.yaw = yawCabeza; // reaparece donde se esté mirando
       this._init = false;
       return;
     }
     if (this.yaw === null) this.yaw = yawCabeza;
+    // sólo se desplaza si la mirada se aleja mucho (comodidad)
     let d = yawCabeza - this.yaw;
     d = Math.atan2(Math.sin(d), Math.cos(d));
     if (Math.abs(d) > 0.55) this.moviendo = true;
@@ -134,10 +138,9 @@ export class Subtitulos {
       this.yaw += d * clamp(dt * 1.8);
       if (Math.abs(d) < 0.05) this.moviendo = false;
     }
-    const dist = 1.6;
-    const px = cabeza.x - Math.sin(this.yaw) * dist;
-    const pz = cabeza.z - Math.cos(this.yaw) * dist;
-    const py = cabeza.y - 0.42;
+    const px = cabeza.x - Math.sin(this.yaw) * DIST;
+    const pz = cabeza.z - Math.cos(this.yaw) * DIST;
+    const py = cabeza.y - BAJO;
     const m = this.mesh;
     if (!this._init) {
       m.position.set(px, py, pz);
@@ -145,6 +148,8 @@ export class Subtitulos {
     }
     const k = clamp(dt * 2.5);
     m.position.set(lerp(m.position.x, px, k), lerp(m.position.y, py, k), lerp(m.position.z, pz, k));
-    m.lookAt(cabeza.x, cabeza.y - 0.1, cabeza.z);
+    // rumbo: la normal +Z del plano apunta de vuelta al visitante; inclinación: hacia los ojos
+    const inclinacion = Math.atan2(cabeza.y - m.position.y, Math.hypot(cabeza.x - m.position.x, cabeza.z - m.position.z));
+    m.rotation.set(-inclinacion, this.yaw, 0, 'YXZ');
   }
 }

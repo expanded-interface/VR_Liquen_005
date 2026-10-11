@@ -146,6 +146,10 @@ export class Mundo {
   aplicar(dt, reloj, cabeza) {
     const s = this.estado;
     U.uTime.value = reloj;
+    // ¿queda alguna onda viva? (las ondas duran 10 s)
+    let ondas = 0;
+    for (const w of U.uWaves.value) if (w.w > 0 && reloj - w.z >= 0 && reloj - w.z < 10) ondas = 1;
+    U.uOndas.value = ondas;
 
     // Viaje de escala alrededor del pivote (el centro del talo)
     const z = s.zoom;
@@ -242,6 +246,8 @@ export class Mundo {
   bajarCalidad() {
     this.bosque.bajarCalidad();
     this.esporas.recortar(CALIDAD.particulasBaja);
+    this.dispersion.puntos.geometry.setDrawRange(0, 300);
+    this.red.nube.geometry.setDrawRange(0, 350);
   }
 
   /** Punto de la roca madre en coordenadas de mundo */

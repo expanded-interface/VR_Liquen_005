@@ -21,13 +21,16 @@ export const U = {
   uNet: {value: 0}, // brillo basal de la red (escena 8)
   uNetColor: {value: new THREE.Color(0x8ff5cf)},
   uWet: {value: 0.4}, // humedad: oscurece y da brillo
+  uOndas: {value: 0}, // 1 si hay alguna onda viva: si no, ningún shader recorre el bucle
 };
 
 // Ondas de luz que recorren superficies (un exp por onda, sin ramas)
 export const GLSL_ONDAS = /* glsl */ `
   uniform vec4 uWaves[${NUM_ONDAS}];
   uniform float uTime;
+  uniform float uOndas;
   float waveAt(vec3 wp){
+    if (uOndas < 0.5) return 0.0; // rama uniforme: coste casi nulo en escenas sin ondas
     float s = 0.0;
     for(int i=0;i<${NUM_ONDAS};i++){
       vec4 w = uWaves[i];
@@ -89,26 +92,35 @@ export function materialMundo({base = 0x1a1714, tipo = 0, propios = {}} = {}) {
           col *= 0.55 + 0.75 * sur;
         #endif
         // Meteorización: microfisuras y materia orgánica oscura que se acumula
-        float fis = 1.0 - smoothstep(0.0, 0.06, Tx(p, N, 0.9).b);
-        col *= 1.0 - fis * uSoil * 0.55;
-        col = mix(col, vec3(0.09,0.07,0.05), uSoil * 0.35 * smoothstep(0.45, 0.8, n0.a));
+        if (uSoil > 0.001) {
+          float fis = 1.0 - smoothstep(0.0, 0.06, Tx(p, N, 0.9).b);
+          col *= 1.0 - fis * uSoil * 0.55;
+          col = mix(col, vec3(0.09,0.07,0.05), uSoil * 0.35 * smoothstep(0.45, 0.8, n0.a));
+        }
         // Musgo en caras superiores
         #if KIND == 0
           float up = 1.0;
         #else
           float up = smoothstep(0.1, 0.7, N.y);
         #endif
-        float mossN = Tx(p, N, 0.11).a;
-        float moss = smoothstep(1.0 - uMoss * 1.1, 1.2 - uMoss * 1.1, mossN + 0.12) * up * uMoss;
-        #if KIND == 2
-          moss = uMoss * smoothstep(1.8, 0.1, vWp.y) * 0.75;
-        #endif
-        vec3 mossCol = mix(vec3(0.06,0.16,0.04), vec3(0.19,0.32,0.09), n1.g);
-        col = mix(col, mossCol, clamp(moss, 0.0, 1.0));
+        if (uMoss > 0.001) {
+          #if KIND == 2
+            float moss = uMoss * smoothstep(1.8, 0.1, vWp.y) * 0.75;
+          #else
+            float mossN = Tx(p, N, 0.11).a;
+            float moss = smoothstep(1.0 - uMoss * 1.1, 1.2 - uMoss * 1.1, mossN + 0.12) * up * uMoss;
+          #endif
+          vec3 mossCol = mix(vec3(0.06,0.16,0.04), vec3(0.19,0.32,0.09), n1.g);
+          col = mix(col, mossCol, clamp(moss, 0.0, 1.0));
+        }
         // Líquenes costrosos y foliosos: manchas que se expanden desde núcleos
-        vec4 nl = Tx(p, N, 1.05);
+        float mancha = 0.0;
+        vec4 nl = vec4(0.0);
         float th = 1.02 - uLichen * 0.52;
-        float mancha = smoothstep(th, th + 0.035, nl.g);
+        if (uLichen > 0.001) {
+          nl = Tx(p, N, 1.05);
+          mancha = smoothstep(th, th + 0.035, nl.g);
+        }
         float tono = nl.a;
         vec3 lichCol = tono < 0.42 ? vec3(0.8,0.5,0.18) : (tono < 0.6 ? vec3(0.55,0.64,0.48) : vec3(0.64,0.68,0.58));
         #if KIND == 0
@@ -123,18 +135,20 @@ export function materialMundo({base = 0x1a1714, tipo = 0, propios = {}} = {}) {
         float dif = max(dot(N, uLightDir), 0.0);
         col *= uAmbient + uLight * dif;
         col *= 1.0 - uWet * 0.25;
-        // Red: venas + ondas
-        float wave = waveAt(vWp);
-        #if KIND == 2
-          float vena = 1.0 - smoothstep(0.0, 0.08, texture2D(uNoise, vec2((p.x - p.z) * 0.9, p.y * 0.05)).b);
-        #else
-          float vena = 1.0 - smoothstep(0.0, 0.05, Tx(p + 20.0, N, 0.18).b);
-        #endif
-        float glow = vena * (uNet * 0.35 + wave * 1.5) + mancha * wave * 0.6;
-        #if KIND == 0
-          glow += wave * 0.12;
-        #endif
-        col += uNetColor * glow;
+        // Red: venas + ondas (sólo si la red o alguna onda están activas)
+        if (uNet > 0.001 || uOndas > 0.5) {
+          float wave = waveAt(vWp);
+          #if KIND == 2
+            float vena = 1.0 - smoothstep(0.0, 0.08, texture2D(uNoise, vec2((p.x - p.z) * 0.9, p.y * 0.05)).b);
+          #else
+            float vena = 1.0 - smoothstep(0.0, 0.05, Tx(p + 20.0, N, 0.18).b);
+          #endif
+          float glow = vena * (uNet * 0.35 + wave * 1.5) + mancha * wave * 0.6;
+          #if KIND == 0
+            glow += wave * 0.12;
+          #endif
+          col += uNetColor * glow;
+        }
         // Niebla exponencial cuadrática
         vec3 dv = vWp - cameraPosition;
         float k = uFogDensity * uFogDensity * dot(dv, dv);

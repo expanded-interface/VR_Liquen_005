@@ -21,13 +21,14 @@ npx http-server -p 8080        # o: python3 -m http.server 8080
   expón el servidor local con un túnel HTTPS. En el Quest, abre la URL y pulsa “Entrar en VR”.
 
 Parámetros de URL para ensayo: `?escena=5` (empezar en una escena), `?velocidad=4` (acelerar),
-`?sinsplat` (forzar el bosque procedural), `?debug` (registro en consola y `window.memoria`).
+`?sinsplat` (forzar el bosque procedural), `?hz=90` (pedir 90 Hz; por defecto 72), `?debug` (registro en consola y `window.memoria`).
 
 ## Controles
 
 | Acción | Quest (controles) | Quest (manos) | Navegador |
 | --- | --- | --- | --- |
 | Soplar (escena 6) | Mano a la boca y abrirla hacia la roca · o mantener gatillo | Mano a la boca y abrirla · o mantener pellizco | Mantener clic · tecla B |
+| Escena anterior / siguiente | Stick ◀ ▶ · A/X siguiente · B/Y anterior | Línea de tiempo | ← → o P / N |
 | Línea de tiempo (pausa) | Botón lateral (grip) | Pellizco largo (1,3 s) | T o Espacio |
 | Saltar a un capítulo | Mirar/apuntar un punto + gatillo | Mirar un punto + pellizco | Teclas 1–8 |
 | Pulsos en la red (escena 8) | Mover las manos rápido · gatillo | Igual | Clic |
@@ -49,6 +50,9 @@ js/escenas/             director (máquina de estados) + 01…08, una escena por
 assets/splats/          aquí va el Gaussian Splat del bosque (ver LEEME.md)
 assets/modelos/         GLB opcionales del liquen y la roca (ver LEEME.md)
 ```
+
+Los saltos entre capítulos son un fundido de 0,85 s (0,35 de cierre + 0,5 de apertura) y no recargan nada:
+todas las escenas comparten el mismo mundo ya construido. Pulsaciones rápidas cambian el destino sin encadenar fundidos.
 
 Cada escena es una función del tiempo que escribe `mundo.estado` (zoom, atmósfera, crecimiento,
 red…). `js/mundo/mundo.js` traduce ese estado a objetos y uniforms. El final de cada escena coincide con
@@ -72,14 +76,34 @@ Verificado en el código fuente de XR Blocks 0.22 (`github.com/google/xrblocks`)
 | Estados y navegación | Se programan en un `xb.Script` | `js/escenas/director.js` |
 | Publicación | Sitio estático con import map | Cualquier hosting HTTPS |
 
+## Rendimiento
+
+Medido en Chromium de escritorio con el simulador (render por software, una vista): por escena, entre 8 y 49
+llamadas de dibujo y entre 17 k y 63 k triángulos (×2 vistas en el visor). No hay archivos pesados: todo es
+procedural salvo el Gaussian Splat opcional. Optimizaciones aplicadas:
+
+- **Shaders precompilados** al cargar y "calentados" bajo el velo de entrada por el camino de render real:
+  antes se compilaban ~13 programas a mitad del recorrido (tirones al cambiar de escena); ahora, 0.
+- **Texto:** cada frase se dibuja y se sube a la GPU una vez; los fundidos usan opacidad (antes ~50 subidas por frase).
+  Orientación calculada a partir del rumbo de la mirada, sin `lookAt`.
+- **Audio perezoso:** las capas mineral, micro, crecimiento, red y las voces sólo tienen osciladores mientras suenan
+  (en la escena 1 pasan de ~40 osciladores a 0 fuera de la capa del bosque). Reverb de 2,2 s en vez de 3,2 s.
+- **Shaders con ramas uniformes:** sin ondas activas no se recorre el bucle de ondas; sin liquen, musgo, meteorización
+  o red, se saltan esas lecturas de textura.
+- **Splat en segundo plano:** se espera como máximo 6 s; si tarda más, se entra con el bosque procedural y el splat
+  aparece desde la siguiente escena que lo usa (nunca a mitad de una). Sin splats en escena, el SparkRenderer queda inactivo.
+- **72 Hz por defecto** y monitor continuo de fluidez en el visor: dos ventanas de 3 s bajo 66 FPS recortan helechos,
+  esporas, partículas de dispersión y nubes de la red, y estrechan los splats.
+- Sin creación de objetos por cuadro en la línea de tiempo.
+
 ## Pendiente de probar en el visor
 
 Este código se probó en Chromium de escritorio (simulador de XR Blocks, render por software): las ocho
 escenas, los saltos, la pausa y la continuación automática funcionan sin errores. **No se ha medido en un
 Quest 3** ni con un splat real cargado. Antes de exhibir:
 
-1. Tasa de cuadros por escena con el splat definitivo (meta: 72 Hz; se pide 90 Hz si el visor lo ofrece).
-   Si la media de los primeros 6 s cae bajo 66 FPS, se recortan helechos, esporas y el ancho de los splats.
+1. Tasa de cuadros por escena con el splat definitivo (meta: 72 Hz).
+   Las escenas más exigentes medidas son la 1 y la 8 (bosque completo, red, partículas) y la 4 (16–17 capas transparentes superpuestas).
 2. Memoria al cargar y sacar el splat de escena (escenas 2→5 y 7).
 3. Que el suelo del splat coincida con la roca (`SPLAT_BOSQUE.posicion`).
 4. Comodidad del viaje de escala (escena 2) con personas sensibles al mareo.

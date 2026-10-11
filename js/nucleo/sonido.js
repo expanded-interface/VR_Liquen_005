@@ -68,12 +68,12 @@ export class Sonido {
     b.Q.value = q;
     return b;
   }
-  _loop(buf, rate = 1) {
+  _loop(buf, rate = 1, arrancar = true) {
     const s = this.ctx.createBufferSource();
     s.buffer = buf;
     s.loop = true;
     s.playbackRate.value = rate;
-    s.start(0, Math.random() * buf.duration);
+    if (arrancar) s.start(0, Math.random() * buf.duration);
     return s;
   }
 
@@ -87,7 +87,7 @@ export class Sonido {
 
     // Reverb (IR generada una vez)
     this.reverb = c.createConvolver();
-    const len = Math.floor(c.sampleRate * 3.2);
+    const len = Math.floor(c.sampleRate * 2.2); // IR más corta: la convolución es el nodo más caro del grafo
     const ir = c.createBuffer(2, len, c.sampleRate);
     for (let ch = 0; ch < 2; ch++) {
       const d = ir.getChannelData(ch);
@@ -139,49 +139,63 @@ export class Sonido {
     insectos.connect(inf).connect(ing).connect(this.bosqueFiltro);
     this.fuentesBosque.push(viento, hojas, insectos);
 
+    /*
+     * Capas 2–5 y voces: PEREZOSAS. Sus filtros y ganancias existen siempre, pero los osciladores
+     * y fuentes sólo se crean cuando la capa suena, y se detienen tras 5 s en silencio.
+     * Antes había ~40 osciladores corriendo durante toda la experiencia aunque su volumen fuera 0.
+     */
+    this.capas = {};
+
     /* Capa 2 · dron mineral */
     this.mineral = this._gain(0);
     this.mineralFiltro = this._filtro('lowpass', 240);
-    [41.2, 55, 82.41, 110.3].forEach((f, i) => {
-      const o = c.createOscillator();
-      o.type = i === 2 ? 'triangle' : 'sine';
-      o.frequency.value = f;
-      o.detune.value = (i - 1.5) * 5;
-      const g = this._gain([0.4, 0.5, 0.2, 0.1][i]);
-      const lfo = c.createOscillator();
-      lfo.frequency.value = 0.04 + i * 0.027;
-      const lg = this._gain(0.09);
-      lfo.connect(lg).connect(g.gain);
-      o.connect(g).connect(this.mineralFiltro);
-      o.start();
-      lfo.start();
-    });
-    // resonancia de piedra: ruido grave muy filtrado
-    const piedra = this._loop(this.bufMarron, 0.5);
-    const pf = this._filtro('bandpass', 140, 6);
-    const pg = this._gain(0.6);
-    piedra.connect(pf).connect(pg).connect(this.mineralFiltro);
     this.mineralFiltro.connect(this.mineral).connect(this.master);
     this.mineral.connect(this.reverb);
+    this._capa('mineral', () => {
+      const fuentes = [];
+      [41.2, 55, 82.41, 110.3].forEach((f, i) => {
+        const o = c.createOscillator();
+        o.type = i === 2 ? 'triangle' : 'sine';
+        o.frequency.value = f;
+        o.detune.value = (i - 1.5) * 5;
+        const g = this._gain([0.4, 0.5, 0.2, 0.1][i]);
+        const lfo = c.createOscillator();
+        lfo.frequency.value = 0.04 + i * 0.027;
+        const lg = this._gain(0.09);
+        lfo.connect(lg).connect(g.gain);
+        o.connect(g).connect(this.mineralFiltro);
+        fuentes.push(o, lfo);
+      });
+      // resonancia de piedra: ruido grave muy filtrado
+      const piedra = this._loop(this.bufMarron, 0.5, false);
+      const pf = this._filtro('bandpass', 140, 6);
+      const pg = this._gain(0.6);
+      piedra.connect(pf).connect(pg).connect(this.mineralFiltro);
+      fuentes.push(piedra);
+      return fuentes;
+    });
 
     /* Capa 3 · microscópico: resonancias tenues continuas + eventos */
     this.micro = this._gain(0);
     const microF = this._filtro('lowpass', 2400);
-    [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => {
-      const o = c.createOscillator();
-      o.frequency.value = f;
-      o.detune.value = rr(-8, 8);
-      const g = this._gain(0.025 / (i + 1));
-      const l = c.createOscillator();
-      l.frequency.value = 0.13 + i * 0.07;
-      const lg = this._gain(0.02 / (i + 1));
-      l.connect(lg).connect(g.gain);
-      o.connect(g).connect(microF);
-      o.start();
-      l.start();
-    });
     microF.connect(this.micro).connect(this.master);
     this.micro.connect(this.reverb);
+    this._capa('micro', () => {
+      const fuentes = [];
+      [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => {
+        const o = c.createOscillator();
+        o.frequency.value = f;
+        o.detune.value = rr(-8, 8);
+        const g = this._gain(0.025 / (i + 1));
+        const l = c.createOscillator();
+        l.frequency.value = 0.13 + i * 0.07;
+        const lg = this._gain(0.02 / (i + 1));
+        l.connect(lg).connect(g.gain);
+        o.connect(g).connect(microF);
+        fuentes.push(o, l);
+      });
+      return fuentes;
+    });
     this.microEventos = this._gain(1);
     this.microEventos.connect(this.master);
     this.microEventos.connect(this.reverb);
@@ -189,68 +203,110 @@ export class Sonido {
     /* Capa 4 · crecimiento: colchón que se abre */
     this.crecimiento = this._gain(0);
     this.crecFiltro = this._filtro('lowpass', 400, 1.2);
-    [146.83, 220, 293.66, 349.23].forEach((f, i) => {
-      const o = c.createOscillator();
-      o.type = 'sawtooth';
-      o.frequency.value = f;
-      o.detune.value = rr(-7, 7);
-      const g = this._gain(0.028 / (1 + i * 0.4));
-      o.connect(g).connect(this.crecFiltro);
-      o.start();
-    });
     this.crecFiltro.connect(this.crecimiento).connect(this.master);
     this.crecimiento.connect(this.reverb);
+    this._capa('crecimiento', () =>
+      [146.83, 220, 293.66, 349.23].map((f, i) => {
+        const o = c.createOscillator();
+        o.type = 'sawtooth';
+        o.frequency.value = f;
+        o.detune.value = rr(-7, 7);
+        const g = this._gain(0.028 / (1 + i * 0.4));
+        o.connect(g).connect(this.crecFiltro);
+        return o;
+      })
+    );
 
     /* Capa 5 · red: un acorde suave que respira (el bosque regresa por la capa 1) */
     this.red = this._gain(0);
     const redF = this._filtro('lowpass', 1200);
-    [73.42, 146.83, 220, 277.18, 329.63].forEach((f, i) => {
-      const o = c.createOscillator();
-      o.type = 'triangle';
-      o.frequency.value = f;
-      const g = this._gain(0.06 / (1 + i * 0.6));
-      const l = c.createOscillator();
-      l.frequency.value = 0.05 + i * 0.013;
-      const lg = this._gain(0.03 / (1 + i * 0.6));
-      l.connect(lg).connect(g.gain);
-      o.connect(g).connect(redF);
-      o.start();
-      l.start();
-    });
     redF.connect(this.red).connect(this.master);
     this.red.connect(this.reverb);
+    this._capa('red', () => {
+      const fuentes = [];
+      [73.42, 146.83, 220, 277.18, 329.63].forEach((f, i) => {
+        const o = c.createOscillator();
+        o.type = 'triangle';
+        o.frequency.value = f;
+        const g = this._gain(0.06 / (1 + i * 0.6));
+        const l = c.createOscillator();
+        l.frequency.value = 0.05 + i * 0.013;
+        const lg = this._gain(0.03 / (1 + i * 0.6));
+        l.connect(lg).connect(g.gain);
+        o.connect(g).connect(redF);
+        fuentes.push(o, l);
+      });
+      return fuentes;
+    });
 
-    /* Voces espaciales de los dos organismos (escena 3) */
+    /* Voces espaciales de los dos organismos (escenas 3 y 4) */
     this.voces = {
-      hongo: this._voz([73.42, 110.0, 146.8], 'triangle', 380),
-      alga: this._voz([587.3, 880, 1174.7], 'sine', 2600, true),
+      hongo: this._voz('hongo', [73.42, 110.0, 146.8], 'triangle', 380),
+      alga: this._voz('alga', [587.3, 880, 1174.7], 'sine', 2600, true),
     };
   }
 
-  _voz(freqs, tipo, corte, tremolo = false) {
+  /** Registra una capa perezosa: construir() crea, conecta y devuelve sus fuentes (sin arrancar). */
+  _capa(nombre, construir) {
+    this.capas[nombre] = {construir, fuentes: [], on: false, silencioDesde: this.ctx.currentTime};
+  }
+
+  /** Enciende la capa si debe sonar; la apaga tras 5 s de silencio sostenido. */
+  _gestionarCapa(nombre, objetivo) {
+    const k = this.capas[nombre];
+    if (!k) return;
+    const ahora = this.ctx.currentTime;
+    if (objetivo > 0.001) {
+      k.silencioDesde = -1;
+      if (!k.on) {
+        k.fuentes = k.construir();
+        k.fuentes.forEach((f) => f.start());
+        k.on = true;
+      }
+    } else if (k.silencioDesde < 0) {
+      k.silencioDesde = ahora;
+    } else if (k.on && ahora - k.silencioDesde > 5) {
+      k.fuentes.forEach((f) => {
+        try {
+          f.stop();
+          f.disconnect();
+        } catch (e) {
+          /* ya detenida */
+        }
+      });
+      k.fuentes = [];
+      k.on = false;
+    }
+  }
+
+  _voz(nombre, freqs, tipo, corte, tremolo = false) {
     const c = this.ctx;
     const panner = this._panner();
     const g = this._gain(0);
     const f = this._filtro('lowpass', corte);
-    freqs.forEach((fr, i) => {
-      const o = c.createOscillator();
-      o.type = tipo;
-      o.frequency.value = fr;
-      o.detune.value = rr(-6, 6);
-      const og = this._gain(0.15 / (i + 1));
-      if (tremolo) {
-        const l = c.createOscillator();
-        l.frequency.value = 3 + i * 1.7;
-        const lg = this._gain(0.05 / (i + 1));
-        l.connect(lg).connect(og.gain);
-        l.start();
-      }
-      o.connect(og).connect(f);
-      o.start();
-    });
     f.connect(g).connect(panner);
     panner.connect(this.master);
     panner.connect(this.reverb);
+    this._capa('voz' + nombre, () => {
+      const fuentes = [];
+      freqs.forEach((fr, i) => {
+        const o = c.createOscillator();
+        o.type = tipo;
+        o.frequency.value = fr;
+        o.detune.value = rr(-6, 6);
+        const og = this._gain(0.15 / (i + 1));
+        if (tremolo) {
+          const l = c.createOscillator();
+          l.frequency.value = 3 + i * 1.7;
+          const lg = this._gain(0.05 / (i + 1));
+          l.connect(lg).connect(og.gain);
+          fuentes.push(l);
+        }
+        o.connect(og).connect(f);
+        fuentes.push(o);
+      });
+      return fuentes;
+    });
     return {panner, gain: g};
   }
   _panner() {
@@ -297,6 +353,19 @@ export class Sonido {
     this.nivel('crec', this.crecimiento.gain, k.crecimiento * 0.8, tau);
     this.nivel('crecF', this.crecFiltro.frequency, Math.round(lerp(300, 2200, k.crecimiento) / 10) * 10, tau);
     this.nivel('red', this.red.gain, k.red * 0.5, tau);
+    this._gestionarCapa('mineral', k.mineral);
+    this._gestionarCapa('micro', k.micro);
+    this._gestionarCapa('crecimiento', k.crecimiento);
+    this._gestionarCapa('red', k.red);
+    // voces: si ninguna escena las pidió en el último cuadro, se apagan
+    this._vozPedida = this._vozPedida || {};
+    for (const n of ['hongo', 'alga']) {
+      if (!this._vozPedida[n]) {
+        this.nivel('voz' + n, this.voces[n].gain.gain, 0, 1);
+        this._gestionarCapa('voz' + n, 0);
+      }
+      this._vozPedida[n] = false;
+    }
   }
 
   oyente(pos, fwd, up) {
@@ -324,7 +393,10 @@ export class Sonido {
     if (this.ctx) this._situarPanner(this.voces[nombre].panner, v.x, v.y, v.z);
   }
   nivelVoz(nombre, v, tau = 1) {
-    if (this.ctx) this.nivel('voz' + nombre, this.voces[nombre].gain.gain, v, tau);
+    if (!this.ctx) return;
+    this.nivel('voz' + nombre, this.voces[nombre].gain.gain, v, tau);
+    this._gestionarCapa('voz' + nombre, v);
+    (this._vozPedida = this._vozPedida || {})[nombre] = true;
   }
 
   /* ---------------- eventos ---------------- */

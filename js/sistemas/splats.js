@@ -92,6 +92,7 @@ export class BosqueSplat {
     xb.core.registry.register(new xb.SparkRendererHolder(spark));
     xb.add(spark);
     this.spark = spark;
+    spark.visible = this._enEscena;
   }
 
   /** Muestra u oculta. Fuera de escena el splat no cuesta GPU (no se ordena ni dibuja). */
@@ -104,6 +105,8 @@ export class BosqueSplat {
       this.contenedor.remove(this.mesh);
       this._enEscena = false;
     }
+    // sin splats en escena, el SparkRenderer tampoco trabaja (no ordena ni genera en cada cuadro)
+    if (this.spark) this.spark.visible = this._enEscena;
   }
   get visible() {
     return this._enEscena;

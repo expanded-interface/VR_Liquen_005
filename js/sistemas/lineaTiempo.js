@@ -61,6 +61,9 @@ export class LineaTiempo {
     this.cv.height = 160;
     this.etTex = new THREE.CanvasTexture(this.cv);
     this.etTex.colorSpace = THREE.SRGBColorSpace;
+    this.etTex.flipY = true;
+    this.etTex.generateMipmaps = false;
+    this.etTex.minFilter = THREE.LinearFilter;
     this.etiqueta = new THREE.Mesh(
       new THREE.PlaneGeometry(0.96, 0.1),
       new THREE.MeshBasicMaterial({map: this.etTex, transparent: true, depthTest: false, depthWrite: false, fog: false, opacity: 0})
@@ -80,9 +83,10 @@ export class LineaTiempo {
     this.grupo.position.set(cabeza.x, cabeza.y - 0.28, cabeza.z);
     this.grupo.rotation.set(0, yaw, 0);
     this.grupo.updateMatrixWorld(true);
+    // orientación explícita (sin lookAt): la cara frontal mira al centro del arco, donde está el visitante
     const p = this.puntos[actual];
     this.anillo.position.copy(p.position);
-    this.anillo.lookAt(this.grupo.position);
+    this.anillo.rotation.set(0, -p.userData.ang, 0);
   }
   cerrar() {
     this.abierta = false;
@@ -102,8 +106,8 @@ export class LineaTiempo {
     this.etTex.needsUpdate = true;
   }
 
-  /** rayos: lista de {origen, dir} (mirada + controles). Devuelve el índice señalado o -1. */
-  actualizar(dt, rayos) {
+  /** rayos: lista de {origen, dir} (mirada + controles); se usan los n primeros. Devuelve el índice señalado o -1. */
+  actualizar(dt, rayos, n = rayos.length) {
     this.alfa = clamp(this.alfa + (this.abierta ? dt / 0.5 : -dt / 0.4));
     this.grupo.visible = this.alfa > 0.001;
     if (!this.grupo.visible) return -1;
@@ -114,7 +118,8 @@ export class LineaTiempo {
     if (this.abierta) {
       for (let i = 0; i < N; i++) {
         this.puntos[i].getWorldPosition(T.v2);
-        for (const r of rayos) {
+        for (let k = 0; k < n; k++) {
+          const r = rayos[k];
           T.v3.copy(T.v2).sub(r.origen).normalize();
           const ang = Math.acos(clamp(T.v3.dot(r.dir), -1, 1));
           if (ang < mejorAng) {
@@ -143,7 +148,7 @@ export class LineaTiempo {
     const idx = this.hover >= 0 ? this.hover : this.actual;
     const p = this.puntos[idx];
     this.etiqueta.position.set(p.position.x, 0.1, p.position.z);
-    this.etiqueta.lookAt(T.v1.copy(this.grupo.position).setY(this.grupo.position.y + 0.1));
+    this.etiqueta.rotation.set(0, -p.userData.ang, 0);
     this._escribir(`${idx + 1} · ${this.nombres[idx]}${this.hover < 0 ? '  ·  en pausa' : ''}`);
     this.etiqueta.material.opacity = this.alfa;
     return this.hover;

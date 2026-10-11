@@ -82,17 +82,31 @@ document.addEventListener('DOMContentLoaded', async () => {
     return;
   }
 
-  // Bosque inicial primero; lo demás es procedural y no descarga nada
-  estado.textContent = 'Cargando el bosque…';
-  const ok = await splat.cargar((p) => {
-    barra.style.width = Math.round(p * 100) + '%';
-  });
+  // Shaders, geometrías y texturas a la GPU antes de entrar (sin tirones en los cambios de escena)
+  estado.textContent = 'Preparando el bosque…';
+  while (!director.listo) await new Promise((r) => setTimeout(r, 30));
+  await director.precompilar();
+
+  // El Gaussian Splat se descarga en segundo plano. Se espera como máximo ESPERA_SPLAT segundos;
+  // si tarda más, se entra con el bosque procedural y el splat aparece desde la siguiente escena que lo use.
+  const ESPERA_SPLAT = 6;
+  let ok = false;
+  const carga = splat
+    .cargar((p) => {
+      barra.style.width = Math.round(p * 100) + '%';
+    })
+    .then((r) => (ok = r));
+  await Promise.race([carga, new Promise((r) => setTimeout(r, ESPERA_SPLAT * 1000))]);
   barra.style.width = '100%';
   btn.disabled = false;
-  document.getElementById('xrSlot').hidden = false; // no se entra antes de tener el bosque inicial
+  document.getElementById('xrSlot').hidden = false;
 
   const vr = navigator.xr && (await navigator.xr.isSessionSupported('immersive-vr').catch(() => false));
-  const fuente = ok ? `Bosque: ${splat.nombre}.` : 'Bosque procedural (no se encontró el Gaussian Splat).';
+  const fuente = ok
+    ? `Bosque: ${splat.nombre}.`
+    : splat.listo || !SPLAT_BOSQUE.activo
+      ? 'Bosque procedural.'
+      : 'Bosque procedural (el Gaussian Splat sigue cargando o no está disponible).';
   if (vr && ES_QUEST) {
     btn.hidden = true;
     estado.textContent = `${fuente} Meta Quest listo: pulsa “Entrar en VR”.`;

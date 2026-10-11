@@ -3,6 +3,7 @@
  *
  * Estados:
  *   espera ──(Entrar en VR / Ver en el navegador)──▶ escena 1 → 2 → … → 8 (abierta)
+ *   cualquier escena ──(stick ◀ ▶ · botones A/X siguiente, B/Y anterior · ← → · N/P)──▶ escena vecina
  *   cualquier escena ──(grip · pellizco largo · T · Espacio)──▶ línea de tiempo (pausa)
  *   línea de tiempo ──(mirar un punto + gatillo/pellizco)──▶ fundido ▶ escena elegida
  *   línea de tiempo ──(gatillo sin apuntar · 12 s sin actividad)──▶ reanudar
@@ -35,6 +36,9 @@ import e8 from './08-red.js';
 
 const MODULOS = [e1, e2, e3, e4, e5, e6, e7, e8];
 const LARGA = 1.3; // s de pellizco/gatillo mantenido para abrir la línea de tiempo
+const FUNDIDO_CIERRE = 0.35; // s · salto entre capítulos: breve, sin pantalla de carga
+const FUNDIDO_APERTURA = 0.5;
+const UMBRAL_STICK = 0.7;
 
 export class Director extends xb.Script {
   constructor(splat) {
@@ -42,8 +46,9 @@ export class Director extends xb.Script {
     this.splat = splat;
   }
 
+  /** El splat se fija al entrar en cada escena: si termina de cargar a mitad de una, aparece en la siguiente (sin saltos visuales). */
   get splatListo() {
-    return this.splat.listo;
+    return this._splatEscena ?? false;
   }
 
   async init() {
@@ -148,6 +153,11 @@ export class Director extends xb.Script {
       this.recentrar = true;
       this.mundo.raiz.visible = true;
       this._entrar(ESCENA_INICIAL - 1);
+      // calentamiento: 2 cuadros con todo visible bajo el velo, por el camino de render real
+      // (en el visor el destino es la capa XR; las variantes de shader quedan listas para todo el recorrido)
+      this.calentar = 2;
+      this.veloAlfa = 1;
+      this.salto = {destino: this.indice, fase: 'abrir'};
     } else {
       sonido.reanudar();
     }
@@ -172,6 +182,7 @@ export class Director extends xb.Script {
       this.subtitulos.limpiar();
     }
     this.indice = i;
+    this._splatEscena = this.splat.listo;
     this.t = 0;
     this.temporizadores = {};
     this.textosMostrados = new Set();
@@ -181,8 +192,23 @@ export class Director extends xb.Script {
   }
 
   irA(i) {
-    if (i === this.indice || this.salto) return;
+    i = Math.max(0, Math.min(MODULOS.length - 1, i));
+    if (this.salto) {
+      // pulsaciones rápidas: se cambia el destino sin esperar otro fundido
+      if (this.salto.fase === 'cerrar') this.salto.destino = i;
+      else if (i !== this.indice) this.salto = {destino: i, fase: 'cerrar'};
+      return;
+    }
+    if (i === this.indice) return;
     this.salto = {destino: i, fase: 'cerrar'};
+  }
+
+  siguiente() {
+    this.irA((this.salto?.destino ?? this.indice) + 1);
+  }
+
+  anterior() {
+    this.irA((this.salto?.destino ?? this.indice) - 1);
   }
 
   _avanzar() {
@@ -278,8 +304,48 @@ export class Director extends xb.Script {
       e.preventDefault();
       if (this.linea.abierta) this._cerrarLinea();
       else this._abrirLinea();
+    } else if (e.key === 'ArrowRight' || e.key === 'n' || e.key === 'N') {
+      if (this.linea.abierta) this._cerrarLinea();
+      this.siguiente();
+    } else if (e.key === 'ArrowLeft' || e.key === 'p' || e.key === 'P') {
+      if (this.linea.abierta) this._cerrarLinea();
+      this.anterior();
     } else if (e.key === 'b' || e.key === 'B') {
       this.soploTeclado = true;
+    }
+  }
+
+  /**
+   * Controles del Quest leídos directamente del gamepad xr-standard de cada inputSource
+   * (no depende de eventos de la librería): stick a izquierda/derecha = anterior/siguiente;
+   * A o X = siguiente; B o Y = anterior. Detecta flancos para que una pulsación sea un solo salto.
+   */
+  _leerMandos() {
+    const sesion = xb.core.renderer?.xr?.getSession?.();
+    if (!sesion) return;
+    this._mandos = this._mandos || {};
+    for (const src of sesion.inputSources) {
+      const gp = src.gamepad;
+      if (!gp || src.hand) continue; // las manos no tienen stick
+      const id = src.handedness;
+      const prev = this._mandos[id] || {x: 0, a: false, b: false};
+      const x = gp.axes.length >= 4 ? gp.axes[2] : gp.axes[0] || 0;
+      const a = !!gp.buttons[4]?.pressed;
+      const b = !!gp.buttons[5]?.pressed;
+      if (this.fase === 'activa') {
+        const dir = x > UMBRAL_STICK ? 1 : x < -UMBRAL_STICK ? -1 : 0;
+        const dirPrev = prev.x > UMBRAL_STICK ? 1 : prev.x < -UMBRAL_STICK ? -1 : 0;
+        let paso = 0;
+        if (dir !== 0 && dir !== dirPrev) paso = dir;
+        if (a && !prev.a) paso = 1;
+        if (b && !prev.b) paso = -1;
+        if (paso) {
+          if (this.linea.abierta) this._cerrarLinea();
+          paso > 0 ? this.siguiente() : this.anterior();
+          vibrar(xb, 0.25, 30);
+        }
+      }
+      this._mandos[id] = {x, a, b};
     }
   }
 
@@ -299,6 +365,11 @@ export class Director extends xb.Script {
   /* ================= bucle ================= */
   update() {
     if (!this.listo) return;
+    if (this._forzados) {
+      this._forzados.forEach((o) => (o.visible = false));
+      this._recortados.forEach((o) => (o.frustumCulled = true));
+      this._forzados = this._recortados = null;
+    }
     const ahora = performance.now() / 1000;
     const dtReal = this.ultimo ? Math.min(0.1, ahora - this.ultimo) : 0.016;
     this.ultimo = ahora;
@@ -316,13 +387,17 @@ export class Director extends xb.Script {
       this.recentrar = false;
     }
 
-    // medir fluidez durante los primeros segundos en el visor
+    // fluidez medida de forma continua en el visor (ventanas de 3 s; dos seguidas bajo el mínimo → calidad baja)
     if (this.medicion && !this.calidadBaja) {
-      this.medicion.t += dtReal;
-      this.medicion.n++;
-      if (this.medicion.t > 6) {
-        if (this.medicion.n / this.medicion.t < CALIDAD.fpsMinimo) this._bajarCalidad();
-        this.medicion = null;
+      const m = this.medicion;
+      m.t += dtReal;
+      m.n++;
+      if (m.t >= 3) {
+        const fps = m.n / m.t;
+        m.malas = fps < CALIDAD.fpsMinimo && !this.salto && !this.pausaSistema ? (m.malas || 0) + 1 : 0;
+        if (m.malas >= 2) this._bajarCalidad();
+        m.t = 0;
+        m.n = 0;
       }
     }
 
@@ -338,33 +413,39 @@ export class Director extends xb.Script {
       this._largoUsado = false;
     }
 
+    this._leerMandos();
+
     const detenido = this.pausado || this.pausaSistema;
     const dt = detenido ? 0 : dtReal * VELOCIDAD;
     if (!detenido) this.reloj += dt;
 
     // línea de tiempo
-    const rayos = [{origen: this.cabeza, dir: this.fwd}];
-    for (const c of this.controladores()) {
-      if (!c || !c.visible) continue;
-      const o = new THREE.Vector3();
-      c.getWorldPosition(o);
-      const d = new THREE.Vector3();
-      c.getWorldDirection(d).negate(); // el rayo de apuntar es -Z
-      rayos.push({origen: o, dir: d});
+    if (this.linea.abierta || this.linea.alfa > 0) {
+      // rayos reutilizados (sin crear vectores en cada cuadro)
+      const pool = (this._rayos = this._rayos || [0, 1, 2, 3, 4].map(() => ({origen: new THREE.Vector3(), dir: new THREE.Vector3()})));
+      pool[0].origen.copy(this.cabeza);
+      pool[0].dir.copy(this.fwd);
+      let n = 1;
+      for (const c of this.controladores()) {
+        if (!c || !c.visible || n >= pool.length) continue;
+        c.getWorldPosition(pool[n].origen);
+        c.getWorldDirection(pool[n].dir).negate(); // el rayo de apuntar es -Z
+        n++;
+      }
+      this.linea.actualizar(dtReal, pool, n);
     }
-    this.linea.actualizar(dtReal, rayos);
     if (this.linea.abierta && this.linea.inactiva > 12) this._cerrarLinea();
 
     // saltos con fundido
     if (this.salto) {
       if (this.salto.fase === 'cerrar') {
-        this.veloAlfa = Math.min(1, this.veloAlfa + dtReal / 0.8);
+        this.veloAlfa = Math.min(1, this.veloAlfa + dtReal / FUNDIDO_CIERRE);
         if (this.veloAlfa >= 1) {
           this._entrar(this.salto.destino, {reiniciar: true});
           this.salto.fase = 'abrir';
         }
       } else {
-        this.veloAlfa = Math.max(0, this.veloAlfa - dtReal / 1.4);
+        this.veloAlfa = Math.max(0, this.veloAlfa - dtReal / FUNDIDO_APERTURA);
         if (this.veloAlfa <= 0) this.salto = null;
       }
     }
@@ -392,6 +473,53 @@ export class Director extends xb.Script {
     this.mundo.aplicar(dt, this.reloj, this.cabeza);
     this.subtitulos.atenuado = this.linea.abierta ? 0.25 : 1;
     this.subtitulos.actualizar(detenido ? 0 : dtReal, this.cabeza, this.yaw);
+
+    if (this.calentar > 0) {
+      this.calentar--;
+      this.veloAlfa = 1;
+      this.velo.material.opacity = 1;
+      this.velo.visible = true;
+      this._forzados = [];
+      this._recortados = [];
+      this.traverse((o) => {
+        if (!o.visible) {
+          o.visible = true;
+          this._forzados.push(o);
+        }
+        if (o.frustumCulled && (o.isMesh || o.isPoints || o.isLine || o.isSprite)) {
+          o.frustumCulled = false; // también lo que queda fuera de la vista se dibuja (y compila) una vez
+          this._recortados.push(o);
+        }
+      });
+    }
+  }
+
+  /**
+   * Compila todos los shaders y sube geometrías y texturas ANTES de entrar, con todo visible
+   * por un instante detrás de la portada. Antes se compilaban ~13 programas durante el recorrido,
+   * justo en los cambios de escena: en el Quest eso son tirones visibles.
+   */
+  async precompilar() {
+    const r = xb.core.renderer;
+    const escena = xb.core.scene;
+    const cam = xb.core.camera;
+    const ocultos = [];
+    this.traverse((o) => {
+      if (!o.visible) {
+        ocultos.push(o);
+        o.visible = true;
+      }
+    });
+    const t0 = performance.now();
+    try {
+      if (r.compileAsync) await r.compileAsync(escena, cam);
+      else r.compile(escena, cam);
+      r.render(escena, cam); // una pasada: sube buffers y texturas a la GPU
+    } catch (e) {
+      console.info('[Director] Precompilación parcial:', e.message || e);
+    }
+    ocultos.forEach((o) => (o.visible = false));
+    if (DEPURAR) console.info(`[Director] Shaders precompilados en ${Math.round(performance.now() - t0)} ms (${r.info.programs?.length} programas)`);
   }
 
   _bajarCalidad() {
